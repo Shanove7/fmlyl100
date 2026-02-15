@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Family 100 - MongoDB Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Space Grotesk', sans-serif; background-color: #0f172a; color: white; overflow: hidden; }
+        .perspective-1000 { perspective: 1000px; }
+        .preserve-3d { transform-style: preserve-3d; }
+        .rotate-x-0 { transform: rotateX(0deg); }
+        .rotate-x-180 { transform: rotateX(180deg); }
+        .backface-hidden { backface-visibility: hidden; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        @keyframes pop { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+        .anim-pop { animation: pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        .anim-shake { animation: shake 0.3s ease-in-out; }
+        .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // credits : kasan
+        
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const playSound = (type) => {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            if (type === 'correct') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(500, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(1000, audioCtx.currentTime + 0.1);
+                gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.5);
+            } else if (type === 'wrong') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+                osc.frequency.linearRampToValueAtTime(100, audioCtx.currentTime + 0.3);
+                gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            } else if (type === 'tick') {
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.05);
+            }
+        };
+
+        const Icons = {
+            Users: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
+            Play: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>,
+            Zap: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,
+            Clock: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+            Crown: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"/></svg>
+        };
+
+        function App() {
+            const [view, setView] = React.useState('login'); 
+            const [username, setUsername] = React.useState('');
+            const [roomCode, setRoomCode] = React.useState('');
+            const [gameState, setGameState] = React.useState(null);
+            const [inputAnswer, setInputAnswer] = React.useState('');
+            const [loading, setLoading] = React.useState(false);
+            const [errorMsg, setErrorMsg] = React.useState('');
+            const [timeLeft, setTimeLeft] = React.useState(0);
+            const [feedback, setFeedback] = React.useState(null);
+            const [uid] = React.useState(Math.random().toString(36).substr(2, 9));
+
+            React.useEffect(() => {
+                if (!roomCode) return;
+                const interval = setInterval(async () => {
+                    try {
+                        const res = await fetch(`/api/game?action=poll&code=${roomCode}`);
+                        if (res.ok) {
+                            const data = await res.json();
+                            setGameState(data);
+                            if (data.status === 'playing' && view === 'lobby') setView('playing');
+                        }
+                    } catch (e) {}
+                }, 1000);
+                return () => clearInterval(interval);
+            }, [roomCode, view]);
+
+            React.useEffect(() => {
+                if (gameState?.endTime) {
+                    const timer = setInterval(() => {
+                        const now = Date.now();
+                        const remaining = Math.max(0, Math.floor((gameState.endTime - now) / 1000));
+                        setTimeLeft(remaining);
+                        if (remaining <= 10 && remaining > 0) playSound('tick');
+                        if (remaining === 0) clearInterval(timer);
+                    }, 1000);
+                    return () => clearInterval(timer);
+                }
+            }, [gameState?.endTime]);
+
+            const triggerFeedback = (type) => {
+                setFeedback(type);
+                playSound(type);
+                setTimeout(() => setFeedback(null), 1000);
+            };
+
+            const createRoom = async () => {
+                setLoading(true);
+                const code = Math.random().toString(36).substring(2, 7).toUpperCase();
+                try {
+                    await fetch('/api/game', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ action: 'create', code, uid, name: username })
+                    });
+                    setRoomCode(code);
+                    setView('lobby');
+                } catch (err) { setErrorMsg('Gagal buat room'); }
+                setLoading(false);
+            };
+
+            const joinRoom = async () => {
+                setLoading(true);
+                const code = roomCode.trim().toUpperCase();
+                try {
+                    const res = await fetch('/api/game', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ action: 'join', code, uid, name: username })
+                    });
+                    if (res.ok) {
+                        setRoomCode(code);
+                        setView('lobby'); 
+                    } else {
+                        setErrorMsg('Room tidak ditemukan');
+                    }
+                } catch (err) { setErrorMsg('Gagal join'); }
+                setLoading(false);
+            };
+
+            const startGame = async () => {
+                setLoading(true);
+                await fetch('/api/game', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ action: 'start', code: roomCode })
+                });
+                setLoading(false);
+            };
+
+            const submitAnswer = async (e) => {
+                e.preventDefault();
+                if (!inputAnswer.trim() || timeLeft <= 0) return;
+                
+                const ans = inputAnswer;
+                setInputAnswer('');
+
+                const res = await fetch('/api/game', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ action: 'submit', code: roomCode, uid, name: username, answer: ans })
+                });
+                const data = await res.json();
+                
+                if (data.correct) triggerFeedback('correct');
+                else triggerFeedback('wrong');
+            };
+
+            return (
+                <div className="min-h-screen relative flex flex-col">
+                    {feedback && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+                            {feedback === 'correct' ? (
+                                <div className="text-green-400 font-black text-6xl drop-shadow-[0_0_20px_rgba(74,222,128,0.8)] anim-pop">BENAR!</div>
+                            ) : (
+                                <div className="text-red-500 font-black text-9xl drop-shadow-[0_0_20px_rgba(239,68,68,0.8)] anim-shake">X</div>
+                            )}
+                        </div>
+                    )}
+
+                    {view === 'login' && (
+                        <div className="flex-1 flex flex-col items-center justify-center p-6 bg-gradient-to-br from-blue-900 to-slate-900">
+                            <h1 className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 mb-2 tracking-tighter">FAMILY 100</h1>
+                            <div className="text-xs text-blue-300 mb-8 font-mono">MONGODB EDITION</div>
+                            <div className="glass p-8 rounded-3xl w-full max-w-sm">
+                                <form onSubmit={(e) => { e.preventDefault(); if(username) setView('menu'); }}>
+                                    <input value={username} onChange={e => setUsername(e.target.value)} maxLength={10} className="w-full bg-slate-800/50 border border-slate-600 rounded-xl p-4 text-center text-xl font-bold mb-4 focus:outline-none focus:border-yellow-400 transition-colors" placeholder="NICKNAME" />
+                                    <button disabled={!username} className="w-full bg-yellow-500 text-blue-900 font-black p-4 rounded-xl hover:bg-yellow-400 transition-transform active:scale-95 disabled:opacity-50">MASUK</button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {view === 'menu' && (
+                        <div className="flex-1 flex flex-col items-center justify-center p-6 gap-4 bg-slate-900">
+                            <div className="text-center mb-8">
+                                <h2 className="text-2xl font-bold">Halo, {username}</h2>
+                            </div>
+                            <button onClick={createRoom} disabled={loading} className="w-full max-w-sm bg-blue-600 p-6 rounded-2xl font-bold flex items-center justify-between hover:bg-blue-500 transition-all shadow-lg group">
+                                <span>BUAT ROOM</span>
+                                <Icons.Play />
+                            </button>
+                            <div className="w-full max-w-sm glass p-6 rounded-2xl">
+                                <div className="flex gap-2">
+                                    <input value={roomCode} onChange={e => setRoomCode(e.target.value.toUpperCase())} className="flex-1 bg-slate-800 border-none rounded-lg p-3 text-center font-mono font-bold tracking-widest uppercase" placeholder="KODE" />
+                                    <button onClick={joinRoom} disabled={!roomCode} className="bg-yellow-500 text-blue-900 font-bold px-6 rounded-lg">GABUNG</button>
+                                </div>
+                                {errorMsg && <p className="text-red-400 text-xs mt-2 text-center">{errorMsg}</p>}
+                            </div>
+                        </div>
+                    )}
+
+                    {view === 'lobby' && gameState && (
+                        <div className="flex-1 flex flex-col p-6 max-w-md mx-auto w-full">
+                            <div className="bg-blue-600 p-6 rounded-2xl mb-6 text-center shadow-xl">
+                                <div className="text-xs text-blue-200 mb-1">KODE ROOM</div>
+                                <div onClick={() => navigator.clipboard.writeText(roomCode)} className="text-5xl font-mono font-black text-white cursor-pointer hover:scale-105 transition-transform">{roomCode}</div>
+                            </div>
+                            <div className="flex-1 overflow-y-auto mb-6">
+                                <div className="flex items-center gap-2 mb-4 font-bold text-lg"><Icons.Users /> Pemain ({gameState.players.length})</div>
+                                <div className="space-y-2">
+                                    {gameState.players.map((p, i) => (
+                                        <div key={i} className="flex items-center gap-3 bg-slate-800 p-3 rounded-xl">
+                                            <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center font-bold">{p.name[0]}</div>
+                                            <div className="flex-1 font-bold">{p.name}</div>
+                                            {p.uid === gameState.hostId && <Icons.Crown />}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            {gameState.hostId === uid ? (
+                                <button onClick={startGame} className="w-full bg-green-500 text-slate-900 font-black p-5 rounded-2xl text-xl shadow-lg hover:bg-green-400 active:scale-95 transition-all">MULAI GAME</button>
+                            ) : (
+                                <div className="text-center text-slate-400 animate-pulse">Menunggu Host...</div>
+                            )}
+                        </div>
+                    )}
+
+                    {view === 'playing' && gameState && gameState.questionData && (
+                        <div className="flex-1 flex flex-col h-full overflow-hidden bg-slate-900">
+                            <div className="p-4 bg-slate-800 shadow-xl z-10 border-b border-slate-700">
+                                <div className="flex justify-between items-center mb-4">
+                                    <div className="flex items-center gap-2 bg-slate-900 px-3 py-1 rounded-full border border-slate-700">
+                                        <Icons.Clock />
+                                        <span className={`font-mono font-bold text-xl ${timeLeft < 10 ? 'text-red-500 animate-pulse' : 'text-yellow-400'}`}>
+                                            {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+                                        </span>
+                                    </div>
+                                    {gameState.hostId === uid && <button onClick={startGame} className="text-xs bg-slate-700 px-3 py-1 rounded hover:bg-slate-600">SKIP</button>}
+                                </div>
+                                <h2 className="text-xl md:text-2xl font-black text-center text-white leading-tight min-h-[3.5rem] flex items-center justify-center">"{gameState.questionData.question}"</h2>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto p-4 flex flex-col items-center">
+                                <div className="w-full max-w-3xl grid grid-cols-1 md:grid-cols-2 gap-3 mb-8">
+                                    {gameState.questionData.answers.map((ans, idx) => (
+                                        <div key={idx} className="h-14 relative group perspective-1000">
+                                            <div className={`w-full h-full duration-500 preserve-3d transition-all ${ans.revealed ? 'rotate-x-0' : 'rotate-x-180'}`}>
+                                                <div className="absolute inset-0 backface-hidden bg-gradient-to-r from-yellow-400 to-yellow-600 rounded-lg shadow-lg flex items-center px-4 border-2 border-yellow-200">
+                                                    <div className="flex-1 font-bold text-blue-900 uppercase truncate text-lg">{ans.text}</div>
+                                                    <div className="bg-blue-900 text-yellow-400 font-black px-2 py-1 rounded text-sm">{ans.points}</div>
+                                                </div>
+                                                <div className="absolute inset-0 backface-hidden rotate-x-180 bg-blue-800 rounded-lg shadow-lg flex items-center justify-center border-2 border-blue-600">
+                                                    <div className="w-8 h-8 rounded-full border-2 border-blue-400 flex items-center justify-center font-bold text-blue-300">{idx + 1}</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="w-full max-w-3xl mb-24">
+                                    <div className="text-xs font-bold text-slate-400 mb-2 uppercase tracking-widest">Papan Skor</div>
+                                    <div className="flex gap-3 overflow-x-auto pb-4 scrollbar-hide">
+                                        {gameState.players.sort((a,b) => b.score - a.score).map((p, i) => (
+                                            <div key={i} className={`flex flex-col items-center min-w-[80px] p-3 rounded-xl border ${p.uid === uid ? 'bg-blue-900/50 border-yellow-500' : 'bg-slate-800 border-slate-700'}`}>
+                                                {i===0 && p.score > 0 && <div className="text-yellow-400 mb-1"><Icons.Crown /></div>}
+                                                <div className="font-bold text-sm truncate w-full text-center">{p.name}</div>
+                                                <div className="font-mono font-black text-xl text-yellow-400">{p.score}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="fixed bottom-0 left-0 w-full bg-slate-900 p-4 border-t border-slate-800 shadow-2xl z-20">
+                                <form onSubmit={submitAnswer} className="max-w-3xl mx-auto flex gap-2">
+                                    <input autoFocus type="text" value={inputAnswer} onChange={e => setInputAnswer(e.target.value)} disabled={timeLeft <= 0} className="flex-1 bg-slate-800 text-white font-bold p-4 rounded-xl border border-slate-600 focus:border-yellow-400 focus:outline-none text-lg" placeholder={timeLeft > 0 ? "Jawab..." : "Waktu Habis!"} />
+                                    <button disabled={!inputAnswer || timeLeft <= 0} className="bg-yellow-500 text-blue-900 p-4 rounded-xl hover:bg-yellow-400 transition-colors disabled:opacity-50"><Icons.Zap /></button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
+
+
